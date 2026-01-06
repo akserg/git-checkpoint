@@ -1,0 +1,75 @@
+# ------------------------------
+# OS / Editor
+# ------------------------------
+.DS_Store
+Thumbs.db
+
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ------------------------------
+# Logs / Temp
+# ------------------------------
+*.log
+tmp/
+temp/
+.cache/
+
+# ------------------------------
+# Node (если будет CLI на Node)
+# ------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------
+# Go (если будет CLI на Go)
+# ------------------------------
+bin/
+dist/
+*.exe
+*.out
+
+# ------------------------------
+# Build artifacts
+# ------------------------------
+build/
+release/
+
+# ------------------------------
+# Coverage / Reports
+# ------------------------------
+coverage/
+*.lcov
+
+# ------------------------------
+# Environment / Secrets
+# ------------------------------
+.env
+.env.*
+!.env.example
+
+# ------------------------------
+# Tool-specific runtime state
+# ------------------------------
+.ai-git/
+.git-checkpoint/
+.checkpoints/
+.checkpoint-cache/
+
+# ------------------------------
+# TUI runtime artifacts
+# ------------------------------
+tui-debug.log
+tui-state.json
+
+# ------------------------------
+# Backup files
+# ------------------------------
+*.bak
+*.old
+*.tmp

@@ -1,0 +1,32 @@
+- name: bug
+  color: d73a4a
+
+- name: enhancement
+  color: a2eeef
+
+- name: feature
+  color: 84b6eb
+
+- name: documentation
+  color: 0075ca
+
+- name: discussion
+  color: d4c5f9
+
+- name: guardrails
+  color: e99695
+
+- name: tui
+  color: cfd3d7
+
+- name: cli
+  color: cfd3d7
+
+- name: config
+  color: cfd3d7
+
+- name: integration
+  color: fef2c0
+
+- name: breaking-change
+  color: b60205
