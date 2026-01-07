@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+#
+# git-checkpoint - checkpoint-driven workflow for Git
+#
+# Entry point script that dispatches subcommands and provides
+# consistent repository detection, error handling, and exit codes.
+#
+
+set -euo pipefail
+
+# ------------------------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------------------------
+
+readonly SCRIPT_NAME="git-checkpoint"
+readonly CONFIG_FILENAME=".git-checkpoint.yaml"
+
+# Exit codes
+readonly EXIT_SUCCESS=0
+readonly EXIT_USAGE_ERROR=2
+
+# ------------------------------------------------------------------------------
+# Error output
+# ------------------------------------------------------------------------------
+
+# Print error message to stderr with prefix
+err() {
+    echo "${SCRIPT_NAME}: $*" >&2
+}
+
+# Print message to stderr (for usage in error context)
+err_echo() {
+    echo "$*" >&2
+}
+
+# ------------------------------------------------------------------------------
+# Help / Usage
+# ------------------------------------------------------------------------------
+
+print_usage() {
+    cat <<EOF
+git-checkpoint - checkpoint-driven workflow for Git
+
+Usage:
+  git-checkpoint <command> [options]
+
+Commands:
+  checkpoint   Create a checkpoint commit
+  rollback     Restore or revert to a checkpoint
+  merge        Merge a branch with guardrails
+  status       Show checkpoint-related status
+  config       Validate and display configuration
+  help         Show this help
+EOF
+}
+
+print_usage_to_stderr() {
+    print_usage >&2
+}
+
+# ------------------------------------------------------------------------------
+# Git repository detection
+# ------------------------------------------------------------------------------
+
+# Check if we're inside a Git repository
+# Returns 0 if inside a repo, non-zero otherwise
+is_git_repo() {
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
+# Get the root directory of the Git repository
+# Prints the path to stdout
+get_repo_root() {
+    git rev-parse --show-toplevel 2>/dev/null
+}
+
+# Ensure we're in a Git repository
+# Exits with error if not
+require_git_repo() {
+    if ! is_git_repo; then
+        err "Not a git repository (or any of the parent directories)"
+        exit $EXIT_USAGE_ERROR
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Configuration discovery
+# ------------------------------------------------------------------------------
+
+# Check if config file exists at the given path
+# Returns 0 if exists, non-zero otherwise
+config_exists() {
+    local config_path="$1"
+    [[ -f "$config_path" ]]
+}
+
+# ------------------------------------------------------------------------------
+# Environment setup
+# ------------------------------------------------------------------------------
+
+# Set up environment variables for subcommands
+# Exports: REPO_ROOT, CONFIG_PATH, HAS_CONFIG
+setup_env() {
+    export REPO_ROOT
+    REPO_ROOT="$(get_repo_root)"
+
+    export CONFIG_PATH
+    CONFIG_PATH="${REPO_ROOT}/${CONFIG_FILENAME}"
+
+    export HAS_CONFIG
+    if config_exists "$CONFIG_PATH"; then
+        HAS_CONFIG="true"
+    else
+        HAS_CONFIG="false"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Subcommand stubs
+# ------------------------------------------------------------------------------
+
+cmd_help() {
+    print_usage
+    return $EXIT_SUCCESS
+}
+
+cmd_status() {
+    # Stub: print environment info for testing
+    echo "REPO_ROOT: $REPO_ROOT"
+    echo "CONFIG_PATH: $CONFIG_PATH"
+    echo "HAS_CONFIG: $HAS_CONFIG"
+    echo "TODO: status"
+    return $EXIT_SUCCESS
+}
+
+cmd_config() {
+    echo "TODO: config"
+    return $EXIT_SUCCESS
+}
+
+cmd_checkpoint() {
+    echo "TODO: checkpoint"
+    return $EXIT_SUCCESS
+}
+
+cmd_rollback() {
+    echo "TODO: rollback"
+    return $EXIT_SUCCESS
+}
+
+cmd_merge() {
+    echo "TODO: merge"
+    return $EXIT_SUCCESS
+}
+
+# ------------------------------------------------------------------------------
+# Command dispatch
+# ------------------------------------------------------------------------------
+
+dispatch() {
+    local cmd="$1"
+    shift
+
+    case "$cmd" in
+        help|-h|--help)
+            cmd_help "$@"
+            ;;
+        status)
+            cmd_status "$@"
+            ;;
+        config)
+            cmd_config "$@"
+            ;;
+        checkpoint)
+            cmd_checkpoint "$@"
+            ;;
+        rollback)
+            cmd_rollback "$@"
+            ;;
+        merge)
+            cmd_merge "$@"
+            ;;
+        *)
+            err "Unknown command: $cmd"
+            err_echo ""
+            print_usage_to_stderr
+            exit $EXIT_USAGE_ERROR
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# Main entry point
+# ------------------------------------------------------------------------------
+
+main() {
+    # Handle no arguments - show usage (help-like behavior)
+    if [[ $# -eq 0 ]]; then
+        print_usage
+        exit $EXIT_SUCCESS
+    fi
+
+    local cmd="$1"
+    shift
+
+    # Handle help before repo check (help should work anywhere)
+    if [[ "$cmd" == "help" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
+        cmd_help "$@"
+        exit $EXIT_SUCCESS
+    fi
+
+    # All other commands require being in a Git repository
+    require_git_repo
+
+    # Set up environment for subcommands
+    setup_env
+
+    # Dispatch to the appropriate command handler
+    dispatch "$cmd" "$@"
+}
+
+main "$@"
+
