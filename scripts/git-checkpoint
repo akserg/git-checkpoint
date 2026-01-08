@@ -17,6 +17,7 @@ readonly CONFIG_FILENAME=".git-checkpoint.yaml"
 
 # Exit codes
 readonly EXIT_SUCCESS=0
+readonly EXIT_NO_CHANGES=1
 readonly EXIT_USAGE_ERROR=2
 
 # ------------------------------------------------------------------------------
@@ -94,6 +95,79 @@ config_exists() {
     [[ -f "$config_path" ]]
 }
 
+# Get a simple scalar value from YAML config
+# Usage: config_get <key> [default]
+# Supports dotted keys like "checkpoints.prefix"
+config_get() {
+    local key="$1"
+    local default="${2:-}"
+    
+    if [[ "$HAS_CONFIG" != "true" ]]; then
+        echo "$default"
+        return
+    fi
+    
+    local value=""
+    # Handle dotted keys by looking for the pattern
+    # This is a simple parser for basic YAML scalars
+    # Note: Use [ \t] instead of \s for portability
+    case "$key" in
+        checkpoints.prefix)
+            # Extract value after "prefix:", strip quotes and whitespace
+            value=$(awk '/^[ \t]*prefix:/ { 
+                sub(/^[ \t]*prefix:[ \t]*/, "")
+                gsub(/^["'\'']|["'\'']$/, "")
+                print
+                exit
+            }' "$CONFIG_PATH" 2>/dev/null)
+            ;;
+        checkpoints.autoTag)
+            value=$(awk '/^[ \t]*autoTag:/ { 
+                sub(/^[ \t]*autoTag:[ \t]*/, "")
+                print
+                exit
+            }' "$CONFIG_PATH" 2>/dev/null)
+            ;;
+        checkpoints.tagFormat)
+            value=$(awk '/^[ \t]*tagFormat:/ { 
+                sub(/^[ \t]*tagFormat:[ \t]*/, "")
+                gsub(/^["'\'']|["'\'']$/, "")
+                print
+                exit
+            }' "$CONFIG_PATH" 2>/dev/null)
+            ;;
+    esac
+    
+    if [[ -n "$value" ]]; then
+        echo "$value"
+    else
+        echo "$default"
+    fi
+}
+
+# Get protected paths from config as newline-separated list
+# Returns empty if no protected paths configured
+config_get_protected_paths() {
+    if [[ "$HAS_CONFIG" != "true" ]]; then
+        return
+    fi
+    
+    # Extract paths.protected array items (lines starting with "    - " after "protected:" under "paths:")
+    # Simple approach: find the paths.protected section and extract list items
+    # Note: Use [ \t] instead of \s for portability across awk implementations
+    awk '
+        /^paths:/ { in_paths=1; next }
+        /^[a-zA-Z]/ && in_paths { in_paths=0 }
+        in_paths && /^[ \t]+protected:/ { in_protected=1; next }
+        in_paths && /^[ \t]+[a-zA-Z]+:/ && in_protected { in_protected=0 }
+        in_protected && /^[ \t]+-[ \t]+/ {
+            gsub(/^[ \t]+-[ \t]+/, "")
+            gsub(/[ \t]*$/, "")
+            print
+        }
+    ' "$CONFIG_PATH" 2>/dev/null
+}
+
 # ------------------------------------------------------------------------------
 # Environment setup
 # ------------------------------------------------------------------------------
@@ -138,8 +212,174 @@ cmd_config() {
 }
 
 cmd_checkpoint() {
-    echo "TODO: checkpoint"
+    local message=""
+    local do_tag=false
+    local force=false
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -m|--message)
+                if [[ -z "${2:-}" ]]; then
+                    err "Option $1 requires an argument"
+                    exit $EXIT_USAGE_ERROR
+                fi
+                message="$2"
+                shift 2
+                ;;
+            --tag)
+                do_tag=true
+                shift
+                ;;
+            --force)
+                force=true
+                shift
+                ;;
+            *)
+                err "Unknown option: $1"
+                exit $EXIT_USAGE_ERROR
+                ;;
+        esac
+    done
+    
+    # Check for changes (staged or unstaged)
+    if ! has_changes; then
+        err "No changes to checkpoint"
+        exit $EXIT_NO_CHANGES
+    fi
+    
+    # Get protected paths and check for violations
+    local protected_paths
+    protected_paths=$(config_get_protected_paths)
+    
+    if [[ -n "$protected_paths" ]]; then
+        local changed_files
+        changed_files=$(get_changed_files)
+        local violations
+        violations=$(check_protected_paths "$protected_paths" "$changed_files")
+        
+        if [[ -n "$violations" ]]; then
+            if [[ "$force" != "true" ]]; then
+                err "Protected paths modified:"
+                echo "$violations" | while IFS= read -r path; do
+                    err_echo "  - $path"
+                done
+                err "Use --force to override"
+                exit $EXIT_USAGE_ERROR
+            else
+                # Warn but continue
+                err_echo "Warning: Protected paths modified (--force used):"
+                echo "$violations" | while IFS= read -r path; do
+                    err_echo "  - $path"
+                done
+            fi
+        fi
+    fi
+    
+    # Stage all changes
+    if ! git add -A 2>/dev/null; then
+        err "Failed to stage changes"
+        exit $EXIT_USAGE_ERROR
+    fi
+    
+    # Build commit message
+    local prefix
+    prefix=$(config_get "checkpoints.prefix" "checkpoint:")
+    
+    local final_message
+    if [[ -n "$message" ]]; then
+        final_message="${prefix} ${message}"
+    else
+        # Use timestamp as default message
+        local timestamp
+        timestamp=$(date +"%Y-%m-%dT%H:%M:%S")
+        final_message="${prefix} ${timestamp}"
+    fi
+    
+    # Create commit
+    if ! git commit -m "$final_message" >/dev/null 2>&1; then
+        err "Failed to create checkpoint commit"
+        exit $EXIT_USAGE_ERROR
+    fi
+    
+    # Get short SHA for output
+    local shortsha
+    shortsha=$(git rev-parse --short HEAD)
+    
+    # Create tag if requested
+    if [[ "$do_tag" == "true" ]]; then
+        local tag_name="cp-${shortsha}"
+        if ! git tag "$tag_name" 2>/dev/null; then
+            err "Failed to create checkpoint tag"
+            exit $EXIT_USAGE_ERROR
+        fi
+    fi
+    
+    # Output success
+    echo "Checkpoint created: ${shortsha} ${final_message}"
     return $EXIT_SUCCESS
+}
+
+# ------------------------------------------------------------------------------
+# Git helpers for checkpoint
+# ------------------------------------------------------------------------------
+
+# Check if there are any changes (staged or unstaged)
+# Returns 0 if there are changes, non-zero otherwise
+has_changes() {
+    # Check for staged changes
+    if ! git diff --cached --quiet 2>/dev/null; then
+        return 0
+    fi
+    # Check for unstaged changes (including untracked files)
+    if ! git diff --quiet 2>/dev/null; then
+        return 0
+    fi
+    # Check for untracked files
+    if [[ -n $(git ls-files --others --exclude-standard 2>/dev/null) ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# Get list of changed files (staged, unstaged, and untracked)
+get_changed_files() {
+    {
+        git diff --name-only 2>/dev/null
+        git diff --cached --name-only 2>/dev/null
+        git ls-files --others --exclude-standard 2>/dev/null
+    } | sort -u
+}
+
+# Check if any changed files match protected paths
+# Args: protected_paths (newline-separated), changed_files (newline-separated)
+# Outputs: matched files (newline-separated)
+check_protected_paths() {
+    local protected_paths="$1"
+    local changed_files="$2"
+    
+    local matches=""
+    
+    while IFS= read -r changed_file; do
+        [[ -z "$changed_file" ]] && continue
+        
+        while IFS= read -r protected; do
+            [[ -z "$protected" ]] && continue
+            
+            # Check if the changed file starts with or matches the protected path
+            # Handle both directory patterns (ending with /) and file patterns
+            if [[ "$changed_file" == "$protected"* ]] || [[ "$changed_file" == "$protected" ]]; then
+                if [[ -n "$matches" ]]; then
+                    matches="${matches}"$'\n'"${changed_file}"
+                else
+                    matches="${changed_file}"
+                fi
+                break
+            fi
+        done <<< "$protected_paths"
+    done <<< "$changed_files"
+    
+    echo "$matches"
 }
 
 cmd_rollback() {
