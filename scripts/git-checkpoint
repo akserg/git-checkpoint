@@ -125,11 +125,10 @@ cmd_help() {
 }
 
 cmd_status() {
-    # Stub: print environment info for testing
+    # Output stable keys required by tests and spec
     echo "REPO_ROOT: $REPO_ROOT"
     echo "CONFIG_PATH: $CONFIG_PATH"
     echo "HAS_CONFIG: $HAS_CONFIG"
-    echo "TODO: status"
     return $EXIT_SUCCESS
 }
 
